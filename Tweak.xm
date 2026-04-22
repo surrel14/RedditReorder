@@ -1,60 +1,89 @@
 #import <UIKit/UIKit.h>
 
-static NSString *SafeString(NSString *value) {
-    return value.length ? value : @"<nil>";
+static BOOL IsCreateTab(UIViewController *vc) {
+    if ([vc respondsToSelector:@selector(childViewControllers)]) {
+        NSArray *children = vc.childViewControllers;
+        if (children.count == 1) {
+            NSString *childClass = NSStringFromClass([children[0] class]);
+            return [childClass containsString:@"DeprecatedBaseViewController"];
+        }
+    }
+    return NO;
 }
 
-static NSString *BuildTabsReport(UITabBarController *tabController) {
-    NSMutableString *report = [NSMutableString string];
-    NSArray<UIViewController *> *controllers = tabController.viewControllers;
+static NSString *GetTitle(UIViewController *vc) {
+    return vc.tabBarItem.title ?: @"";
+}
 
-    [report appendFormat:@"Tab controller class: %@\n", NSStringFromClass([tabController class])];
-    [report appendFormat:@"Tab count: %lu\n\n", (unsigned long)controllers.count];
+static NSInteger Rank(UIViewController *vc) {
+    NSString *title = GetTitle(vc);
 
-    NSInteger idx = 0;
-    for (UIViewController *vc in controllers) {
-        UITabBarItem *item = vc.tabBarItem;
+    if ([title isEqualToString:@"Home"]) return 0;
+    if ([title isEqualToString:@"Inbox"]) return 2;
 
-        [report appendFormat:@"[%ld]\n", (long)idx];
-        [report appendFormat:@"Class: %@\n", NSStringFromClass([vc class])];
-        [report appendFormat:@"vc.title: %@\n", SafeString(vc.title)];
-        [report appendFormat:@"tabBarItem.title: %@\n", SafeString(item.title)];
-        [report appendFormat:@"tag: %ld\n", (long)item.tag];
+    // tutto il resto (You)
+    return 3;
+}
 
-        if ([vc respondsToSelector:@selector(childViewControllers)]) {
-            NSArray<UIViewController *> *children = vc.childViewControllers;
-            [report appendFormat:@"child count: %lu\n", (unsigned long)children.count];
-            for (UIViewController *child in children) {
-                [report appendFormat:@"  child: %@\n", NSStringFromClass([child class])];
-            }
+static NSArray *ReorderTabs(NSArray *controllers) {
+    if (controllers.count < 2) return controllers;
+
+    NSMutableArray *result = [controllers mutableCopy];
+
+    NSInteger createIndex = NSNotFound;
+    UIViewController *createVC = nil;
+
+    NSMutableArray *others = [NSMutableArray array];
+    NSMutableArray *indexes = [NSMutableArray array];
+
+    for (NSInteger i = 0; i < controllers.count; i++) {
+        UIViewController *vc = controllers[i];
+
+        if (IsCreateTab(vc)) {
+            createIndex = i;
+            createVC = vc;
+        } else {
+            [others addObject:vc];
+            [indexes addObject:@(i)];
         }
-
-        [report appendString:@"\n"];
-        idx++;
     }
 
-    return report.copy;
+    if (createIndex == NSNotFound) return controllers;
+
+    // ordina le altre
+    [others sortUsingComparator:^NSComparisonResult(id a, id b) {
+        NSInteger ra = Rank(a);
+        NSInteger rb = Rank(b);
+        return ra < rb ? NSOrderedAscending : NSOrderedDescending;
+    }];
+
+    // rimetti create dov'è
+    result[createIndex] = createVC;
+
+    // riempi gli altri slot
+    NSInteger cursor = 0;
+    for (NSNumber *n in indexes) {
+        NSInteger i = n.integerValue;
+        result[i] = others[cursor++];
+    }
+
+    return result;
 }
 
-static void ShowTabsReport(UITabBarController *tabController) {
-    if (!tabController) return;
+static void Apply(UITabBarController *tab) {
+    NSArray *orig = tab.viewControllers;
+    if (!orig) return;
 
-    NSString *report = BuildTabsReport(tabController);
+    UIViewController *selected = tab.selectedViewController;
+    NSArray *new = ReorderTabs(orig);
 
-    dispatch_async(dispatch_get_main_queue(), ^{
-        UIPasteboard.generalPasteboard.string = report;
+    if (![orig isEqualToArray:new]) {
+        [tab setViewControllers:new animated:NO];
 
-        UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"RedditTabOrder Debug"
-                                                                       message:report
-                                                                preferredStyle:UIAlertControllerStyleAlert];
-
-        [alert addAction:[UIAlertAction actionWithTitle:@"Close"
-                                                  style:UIAlertActionStyleDefault
-                                                handler:nil]];
-
-        UIViewController *presenter = tabController.presentedViewController ?: tabController;
-        [presenter presentViewController:alert animated:YES completion:nil];
-    });
+        if ([new containsObject:selected]) {
+            tab.selectedViewController = selected;
+        }
+    }
 }
 
 %hook UITabBarController
@@ -62,12 +91,16 @@ static void ShowTabsReport(UITabBarController *tabController) {
 - (void)viewDidAppear:(BOOL)animated {
     %orig;
 
-    static BOOL shownOnce = NO;
-    if (shownOnce) return;
-    shownOnce = YES;
+    dispatch_async(dispatch_get_main_queue(), ^{
+        Apply((UITabBarController *)self);
+    });
+}
 
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.0 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-        ShowTabsReport((UITabBarController *)self);
+- (void)setViewControllers:(NSArray *)viewControllers {
+    %orig;
+
+    dispatch_async(dispatch_get_main_queue(), ^{
+        Apply((UITabBarController *)self);
     });
 }
 
