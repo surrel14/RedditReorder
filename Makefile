@@ -9,6 +9,6 @@ TWEAK_NAME = RedditTabOrder
 
 RedditTabOrder_FILES = Tweak.xm
 RedditTabOrder_CFLAGS = -fobjc-arc
-RedditTabOrder_FRAMEWORKS = UIKit Foundation
+RedditTabOrder_FRAMEWORKS = UIKit Foundation WebKit
 
 include $(THEOS_MAKE_PATH)/tweak.mk
