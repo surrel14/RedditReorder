@@ -1,4 +1,36 @@
 #import <UIKit/UIKit.h>
+#import <WebKit/WebKit.h>
+
+static UIViewController *CreateSideloadedTab(void) {
+    UIViewController *vc = [UIViewController new];
+    vc.view.backgroundColor = [UIColor systemBackgroundColor];
+
+    UIImage *icon = [UIImage systemImageNamed:@"globe"];
+    UIImage *iconSelected = [UIImage systemImageNamed:@"globe"];
+    vc.tabBarItem = [[UITabBarItem alloc] initWithTitle:@"Sideloaded"
+                                                  image:icon
+                                          selectedImage:iconSelected];
+
+    WKWebViewConfiguration *config = [WKWebViewConfiguration new];
+    WKWebView *webView = [[WKWebView alloc] initWithFrame:CGRectZero configuration:config];
+    webView.translatesAutoresizingMaskIntoConstraints = NO;
+    webView.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+
+    [vc.view addSubview:webView];
+
+    [NSLayoutConstraint activateConstraints:@[
+        [webView.topAnchor constraintEqualToAnchor:vc.view.safeAreaLayoutGuide.topAnchor],
+        [webView.bottomAnchor constraintEqualToAnchor:vc.view.bottomAnchor],
+        [webView.leadingAnchor constraintEqualToAnchor:vc.view.leadingAnchor],
+        [webView.trailingAnchor constraintEqualToAnchor:vc.view.trailingAnchor]
+    ]];
+
+    NSURL *url = [NSURL URLWithString:@"https://www.reddit.com/r/sideloaded/"];
+    NSURLRequest *request = [NSURLRequest requestWithURL:url];
+    [webView loadRequest:request];
+
+    return vc;
+}
 
 static BOOL IsCreateTab(UIViewController *vc) {
     if ([vc respondsToSelector:@selector(childViewControllers)]) {
@@ -11,84 +43,43 @@ static BOOL IsCreateTab(UIViewController *vc) {
     return NO;
 }
 
-static NSString *GetTitle(UIViewController *vc) {
-    NSString *title = vc.tabBarItem.title;
-    return title ? title : @"";
+static BOOL HasCustomTab(NSArray<UIViewController *> *controllers) {
+    for (UIViewController *vc in controllers) {
+        if ([vc.tabBarItem.title isEqualToString:@"Sideloaded"]) {
+            return YES;
+        }
+    }
+    return NO;
 }
 
-static NSInteger Rank(UIViewController *vc) {
-    NSString *title = GetTitle(vc);
+static void AddCustomTab(UITabBarController *tab) {
+    NSArray<UIViewController *> *orig = tab.viewControllers;
+    if (!orig || orig.count == 0) return;
+    if (HasCustomTab(orig)) return;
 
-    if ([title isEqualToString:@"Home"]) return 0;
-    if ([title isEqualToString:@"Inbox"]) return 2;
-
-    // tutto il resto va dopo
-    return 3;
-}
-
-static NSArray<UIViewController *> *ReorderTabs(NSArray<UIViewController *> *controllers) {
-    if (!controllers || controllers.count < 2) return controllers;
-
-    NSMutableArray<UIViewController *> *result = [controllers mutableCopy];
+    NSMutableArray<UIViewController *> *tabs = [orig mutableCopy];
+    UIViewController *customVC = CreateSideloadedTab();
 
     NSInteger createIndex = NSNotFound;
-    UIViewController *createVC = nil;
-
-    NSMutableArray<UIViewController *> *others = [NSMutableArray array];
-    NSMutableArray<NSNumber *> *indexes = [NSMutableArray array];
-
-    for (NSInteger i = 0; i < (NSInteger)controllers.count; i++) {
-        UIViewController *vc = controllers[i];
-
-        if (IsCreateTab(vc) && createIndex == NSNotFound) {
+    for (NSInteger i = 0; i < (NSInteger)orig.count; i++) {
+        if (IsCreateTab(orig[i])) {
             createIndex = i;
-            createVC = vc;
-        } else {
-            [others addObject:vc];
-            [indexes addObject:@(i)];
+            break;
         }
     }
 
-    if (createIndex == NSNotFound || !createVC) {
-        return controllers;
+    // se troviamo Create, inseriamo la nuova tab dopo Create
+    if (createIndex != NSNotFound && createIndex + 1 <= (NSInteger)tabs.count) {
+        [tabs insertObject:customVC atIndex:createIndex + 1];
+    } else {
+        [tabs addObject:customVC];
     }
-
-    [others sortUsingComparator:^NSComparisonResult(UIViewController *a, UIViewController *b) {
-        NSInteger ra = Rank(a);
-        NSInteger rb = Rank(b);
-
-        if (ra < rb) return NSOrderedAscending;
-        if (ra > rb) return NSOrderedDescending;
-        return NSOrderedSame;
-    }];
-
-    result[createIndex] = createVC;
-
-    NSInteger cursor = 0;
-    for (NSNumber *n in indexes) {
-        NSInteger idx = n.integerValue;
-        if (cursor < (NSInteger)others.count) {
-            result[idx] = others[cursor];
-            cursor++;
-        }
-    }
-
-    return result.copy;
-}
-
-static void Apply(UITabBarController *tab) {
-    NSArray<UIViewController *> *orig = tab.viewControllers;
-    if (!orig || orig.count < 2) return;
 
     UIViewController *selected = tab.selectedViewController;
-    NSArray<UIViewController *> *reordered = ReorderTabs(orig);
+    [tab setViewControllers:tabs animated:NO];
 
-    if (![orig isEqualToArray:reordered]) {
-        [tab setViewControllers:reordered animated:NO];
-
-        if (selected && [reordered containsObject:selected]) {
-            tab.selectedViewController = selected;
-        }
+    if (selected && [tabs containsObject:selected]) {
+        tab.selectedViewController = selected;
     }
 }
 
@@ -97,16 +88,12 @@ static void Apply(UITabBarController *tab) {
 - (void)viewDidAppear:(BOOL)animated {
     %orig;
 
-    dispatch_async(dispatch_get_main_queue(), ^{
-        Apply((UITabBarController *)self);
-    });
-}
-
-- (void)setViewControllers:(NSArray<__kindof UIViewController *> *)viewControllers {
-    %orig;
+    static BOOL addedOnce = NO;
+    if (addedOnce) return;
+    addedOnce = YES;
 
     dispatch_async(dispatch_get_main_queue(), ^{
-        Apply((UITabBarController *)self);
+        AddCustomTab((UITabBarController *)self);
     });
 }
 
