@@ -4,41 +4,57 @@ static NSString *SafeString(NSString *value) {
     return value.length ? value : @"<nil>";
 }
 
-static void DumpTabs(UITabBarController *tabController, NSString *prefix) {
+static NSString *BuildTabsReport(UITabBarController *tabController) {
+    NSMutableString *report = [NSMutableString string];
     NSArray<UIViewController *> *controllers = tabController.viewControllers;
-    NSLog(@"[RedditTabOrder] ===== %@ =====", prefix);
-    NSLog(@"[RedditTabOrder] controller class = %@", NSStringFromClass([tabController class]));
-    NSLog(@"[RedditTabOrder] tabs count = %lu", (unsigned long)controllers.count);
+
+    [report appendFormat:@"Tab controller class: %@\n", NSStringFromClass([tabController class])];
+    [report appendFormat:@"Tab count: %lu\n\n", (unsigned long)controllers.count];
 
     NSInteger idx = 0;
     for (UIViewController *vc in controllers) {
         UITabBarItem *item = vc.tabBarItem;
 
-        NSString *vcClass = NSStringFromClass([vc class]);
-        NSString *title = SafeString(vc.title);
-        NSString *tabTitle = SafeString(item.title);
-
-        NSString *imageDesc = item.image ? [item.image description] : @"<nil>";
-        NSString *selectedImageDesc = item.selectedImage ? [item.selectedImage description] : @"<nil>";
-
-        NSLog(@"[RedditTabOrder] idx=%ld", (long)idx);
-        NSLog(@"[RedditTabOrder]   vc class        = %@", vcClass);
-        NSLog(@"[RedditTabOrder]   vc title        = %@", title);
-        NSLog(@"[RedditTabOrder]   tab title       = %@", tabTitle);
-        NSLog(@"[RedditTabOrder]   item tag        = %ld", (long)item.tag);
-        NSLog(@"[RedditTabOrder]   image           = %@", imageDesc);
-        NSLog(@"[RedditTabOrder]   selected image  = %@", selectedImageDesc);
+        [report appendFormat:@"[%ld]\n", (long)idx];
+        [report appendFormat:@"Class: %@\n", NSStringFromClass([vc class])];
+        [report appendFormat:@"vc.title: %@\n", SafeString(vc.title)];
+        [report appendFormat:@"tabBarItem.title: %@\n", SafeString(item.title)];
+        [report appendFormat:@"tag: %ld\n", (long)item.tag];
 
         if ([vc respondsToSelector:@selector(childViewControllers)]) {
             NSArray<UIViewController *> *children = vc.childViewControllers;
-            NSLog(@"[RedditTabOrder]   child count     = %lu", (unsigned long)children.count);
+            [report appendFormat:@"child count: %lu\n", (unsigned long)children.count];
             for (UIViewController *child in children) {
-                NSLog(@"[RedditTabOrder]     child class = %@", NSStringFromClass([child class]));
+                [report appendFormat:@"  child: %@\n", NSStringFromClass([child class])];
             }
         }
 
+        [report appendString:@"\n"];
         idx++;
     }
+
+    return report.copy;
+}
+
+static void ShowTabsReport(UITabBarController *tabController) {
+    if (!tabController) return;
+
+    NSString *report = BuildTabsReport(tabController);
+
+    dispatch_async(dispatch_get_main_queue(), ^{
+        UIPasteboard.generalPasteboard.string = report;
+
+        UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"RedditTabOrder Debug"
+                                                                       message:report
+                                                                preferredStyle:UIAlertControllerStyleAlert];
+
+        [alert addAction:[UIAlertAction actionWithTitle:@"Close"
+                                                  style:UIAlertActionStyleDefault
+                                                handler:nil]];
+
+        UIViewController *presenter = tabController.presentedViewController ?: tabController;
+        [presenter presentViewController:alert animated:YES completion:nil];
+    });
 }
 
 %hook UITabBarController
@@ -46,16 +62,12 @@ static void DumpTabs(UITabBarController *tabController, NSString *prefix) {
 - (void)viewDidAppear:(BOOL)animated {
     %orig;
 
-    dispatch_async(dispatch_get_main_queue(), ^{
-        DumpTabs((UITabBarController *)self, @"viewDidAppear");
-    });
-}
+    static BOOL shownOnce = NO;
+    if (shownOnce) return;
+    shownOnce = YES;
 
-- (void)setViewControllers:(NSArray<__kindof UIViewController *> *)viewControllers {
-    %orig;
-
-    dispatch_async(dispatch_get_main_queue(), ^{
-        DumpTabs((UITabBarController *)self, @"setViewControllers");
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.0 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+        ShowTabsReport((UITabBarController *)self);
     });
 }
 
