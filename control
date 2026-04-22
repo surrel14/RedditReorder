@@ -1,0 +1,9 @@
+Package: com.surrel14.reddittaborder
+Name: RedditTabOrder
+Depends: mobilesubstrate
+Version: 1.0
+Architecture: iphoneos-arm64
+Description: Reorder Reddit tab bar
+Maintainer: surrel14
+Author: surrel14
+Section: Tweaks
