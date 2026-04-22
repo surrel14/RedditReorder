@@ -1,4 +1,4 @@
-name: Build Tweak
+name: Build RedditTabOrder
 
 on:
   push:
@@ -14,6 +14,45 @@ jobs:
 
       - name: Setup Theos
         uses: level3tjg/theos-action@main
+        with:
+          cache: false
+          cache-dir-theos: ${{ github.workspace }}/theos
+          cache-dir-sdks: ${{ github.workspace }}/theos/sdks
 
-      - name: Build tweak
-        run: make clean package FINALPACKAGE=1
+      - name: Build tweak (.deb)
+        run: |
+          make clean package FINALPACKAGE=1
+
+      - name: Extract .dylib from .deb
+        run: |
+          set -euo pipefail
+
+          mkdir -p extracted output final
+
+          DEB_FILE="$(ls packages/*.deb | head -n 1)"
+          echo "Using $DEB_FILE"
+
+          dpkg-deb -x "$DEB_FILE" extracted
+
+          find extracted -name "*.dylib" -exec cp -f {} output/ \;
+
+      - name: Prepare final outputs
+        run: |
+          set -euo pipefail
+
+          VERSION="$(grep '^Version:' control | awk '{print $2}')"
+
+          DEB_FILE="$(ls packages/*.deb | head -n 1)"
+          cp -f "$DEB_FILE" "final/RedditTabOrder_${VERSION}.deb"
+
+          shopt -s nullglob
+          for f in output/*.dylib; do
+            base="$(basename "$f")"
+            cp -f "$f" "final/$base"
+          done
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: RedditTabOrder-build
+          path: final/*
