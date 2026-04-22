@@ -21,15 +21,10 @@ static void LogTabs(NSArray<UIViewController *> *controllers, NSString *prefix) 
     }
 }
 
-static BOOL IsProtectedTab(UIViewController *vc) {
+static BOOL IsCreateTab(UIViewController *vc) {
     NSString *title = SafeTabTitle(vc);
     if (!title) return NO;
-
-    // Lasciamo queste tab dove sono
-    if ([title caseInsensitiveCompare:@"Create"] == NSOrderedSame) return YES;
-    if ([title caseInsensitiveCompare:@"Inbox"] == NSOrderedSame) return YES;
-
-    return NO;
+    return [title caseInsensitiveCompare:@"Create"] == NSOrderedSame;
 }
 
 static NSInteger PreferredRankForTitle(NSString *title) {
@@ -37,30 +32,40 @@ static NSInteger PreferredRankForTitle(NSString *title) {
 
     if ([title caseInsensitiveCompare:@"Home"] == NSOrderedSame) return 0;
     if ([title caseInsensitiveCompare:@"Communities"] == NSOrderedSame) return 1;
-    if ([title caseInsensitiveCompare:@"Profile"] == NSOrderedSame) return 2;
+    if ([title caseInsensitiveCompare:@"Inbox"] == NSOrderedSame) return 2;
+    if ([title caseInsensitiveCompare:@"Profile"] == NSOrderedSame) return 3;
 
     return NSIntegerMax;
 }
 
-static NSArray<UIViewController *> *SafelyReorderTabs(NSArray<UIViewController *> *controllers) {
+static NSArray<UIViewController *> *ReorderKeepingCreateCentered(NSArray<UIViewController *> *controllers) {
     if (!controllers || controllers.count < 2) return controllers;
 
     NSMutableArray<UIViewController *> *result = [controllers mutableCopy];
 
-    // raccogliamo solo le tab non protette
-    NSMutableArray<UIViewController *> *movable = [NSMutableArray array];
-    NSMutableArray<NSNumber *> *movableIndexes = [NSMutableArray array];
+    NSInteger createIndex = NSNotFound;
+    UIViewController *createVC = nil;
+
+    NSMutableArray<UIViewController *> *others = [NSMutableArray array];
+    NSMutableArray<NSNumber *> *otherIndexes = [NSMutableArray array];
 
     for (NSInteger i = 0; i < controllers.count; i++) {
         UIViewController *vc = controllers[i];
-        if (!IsProtectedTab(vc)) {
-            [movable addObject:vc];
-            [movableIndexes addObject:@(i)];
+        if (IsCreateTab(vc) && createIndex == NSNotFound) {
+            createIndex = i;
+            createVC = vc;
+        } else {
+            [others addObject:vc];
+            [otherIndexes addObject:@(i)];
         }
     }
 
-    // ordina solo le tab mobili
-    [movable sortUsingComparator:^NSComparisonResult(UIViewController *a, UIViewController *b) {
+    if (createIndex == NSNotFound || !createVC) {
+        NSLog(@"[RedditTabOrder] Create tab not found, skipping hardcoded reorder");
+        return controllers;
+    }
+
+    [others sortUsingComparator:^NSComparisonResult(UIViewController *a, UIViewController *b) {
         NSInteger ra = PreferredRankForTitle(SafeTabTitle(a));
         NSInteger rb = PreferredRankForTitle(SafeTabTitle(b));
 
@@ -69,10 +74,17 @@ static NSArray<UIViewController *> *SafelyReorderTabs(NSArray<UIViewController *
         return NSOrderedSame;
     }];
 
-    // rimetti le tab mobili negli slot originali delle mobili
-    for (NSInteger i = 0; i < movableIndexes.count; i++) {
-        NSInteger targetIndex = movableIndexes[i].integerValue;
-        result[targetIndex] = movable[i];
+    // rimetti Create al suo indice originale
+    result[createIndex] = createVC;
+
+    // riempi gli altri slot con l'ordine desiderato
+    NSInteger cursor = 0;
+    for (NSNumber *idxNum in otherIndexes) {
+        NSInteger idx = idxNum.integerValue;
+        if (cursor < others.count) {
+            result[idx] = others[cursor];
+            cursor++;
+        }
     }
 
     return result.copy;
@@ -87,12 +99,11 @@ static void ApplyTabOrderIfNeeded(UITabBarController *tabController) {
     LogTabs(controllers, @"before reorder");
 
     UIViewController *selected = tabController.selectedViewController;
-    NSArray<UIViewController *> *reordered = SafelyReorderTabs(controllers);
+    NSArray<UIViewController *> *reordered = ReorderKeepingCreateCentered(controllers);
 
     if (![controllers isEqualToArray:reordered]) {
         [tabController setViewControllers:reordered animated:NO];
 
-        // ripristina il selected controller se ancora presente
         if (selected && [reordered containsObject:selected]) {
             tabController.selectedViewController = selected;
         }
