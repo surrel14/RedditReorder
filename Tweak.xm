@@ -2,7 +2,7 @@
 
 static BOOL IsCreateTab(UIViewController *vc) {
     if ([vc respondsToSelector:@selector(childViewControllers)]) {
-        NSArray *children = vc.childViewControllers;
+        NSArray<UIViewController *> *children = vc.childViewControllers;
         if (children.count == 1) {
             NSString *childClass = NSStringFromClass([children[0] class]);
             return [childClass containsString:@"DeprecatedBaseViewController"];
@@ -12,7 +12,8 @@ static BOOL IsCreateTab(UIViewController *vc) {
 }
 
 static NSString *GetTitle(UIViewController *vc) {
-    return vc.tabBarItem.title ?: @"";
+    NSString *title = vc.tabBarItem.title;
+    return title ? title : @"";
 }
 
 static NSInteger Rank(UIViewController *vc) {
@@ -21,25 +22,25 @@ static NSInteger Rank(UIViewController *vc) {
     if ([title isEqualToString:@"Home"]) return 0;
     if ([title isEqualToString:@"Inbox"]) return 2;
 
-    // tutto il resto (You)
+    // tutto il resto va dopo
     return 3;
 }
 
-static NSArray *ReorderTabs(NSArray *controllers) {
-    if (controllers.count < 2) return controllers;
+static NSArray<UIViewController *> *ReorderTabs(NSArray<UIViewController *> *controllers) {
+    if (!controllers || controllers.count < 2) return controllers;
 
-    NSMutableArray *result = [controllers mutableCopy];
+    NSMutableArray<UIViewController *> *result = [controllers mutableCopy];
 
     NSInteger createIndex = NSNotFound;
     UIViewController *createVC = nil;
 
-    NSMutableArray *others = [NSMutableArray array];
-    NSMutableArray *indexes = [NSMutableArray array];
+    NSMutableArray<UIViewController *> *others = [NSMutableArray array];
+    NSMutableArray<NSNumber *> *indexes = [NSMutableArray array];
 
-    for (NSInteger i = 0; i < controllers.count; i++) {
+    for (NSInteger i = 0; i < (NSInteger)controllers.count; i++) {
         UIViewController *vc = controllers[i];
 
-        if (IsCreateTab(vc)) {
+        if (IsCreateTab(vc) && createIndex == NSNotFound) {
             createIndex = i;
             createVC = vc;
         } else {
@@ -48,39 +49,44 @@ static NSArray *ReorderTabs(NSArray *controllers) {
         }
     }
 
-    if (createIndex == NSNotFound) return controllers;
-
-    // ordina le altre
-    [others sortUsingComparator:^NSComparisonResult(id a, id b) {
-        NSInteger ra = Rank(a);
-        NSInteger rb = Rank(b);
-        return ra < rb ? NSOrderedAscending : NSOrderedDescending;
-    }];
-
-    // rimetti create dov'è
-    result[createIndex] = createVC;
-
-    // riempi gli altri slot
-    NSInteger cursor = 0;
-    for (NSNumber *n in indexes) {
-        NSInteger i = n.integerValue;
-        result[i] = others[cursor++];
+    if (createIndex == NSNotFound || !createVC) {
+        return controllers;
     }
 
-    return result;
+    [others sortUsingComparator:^NSComparisonResult(UIViewController *a, UIViewController *b) {
+        NSInteger ra = Rank(a);
+        NSInteger rb = Rank(b);
+
+        if (ra < rb) return NSOrderedAscending;
+        if (ra > rb) return NSOrderedDescending;
+        return NSOrderedSame;
+    }];
+
+    result[createIndex] = createVC;
+
+    NSInteger cursor = 0;
+    for (NSNumber *n in indexes) {
+        NSInteger idx = n.integerValue;
+        if (cursor < (NSInteger)others.count) {
+            result[idx] = others[cursor];
+            cursor++;
+        }
+    }
+
+    return result.copy;
 }
 
 static void Apply(UITabBarController *tab) {
-    NSArray *orig = tab.viewControllers;
-    if (!orig) return;
+    NSArray<UIViewController *> *orig = tab.viewControllers;
+    if (!orig || orig.count < 2) return;
 
     UIViewController *selected = tab.selectedViewController;
-    NSArray *new = ReorderTabs(orig);
+    NSArray<UIViewController *> *reordered = ReorderTabs(orig);
 
-    if (![orig isEqualToArray:new]) {
-        [tab setViewControllers:new animated:NO];
+    if (![orig isEqualToArray:reordered]) {
+        [tab setViewControllers:reordered animated:NO];
 
-        if ([new containsObject:selected]) {
+        if (selected && [reordered containsObject:selected]) {
             tab.selectedViewController = selected;
         }
     }
@@ -96,7 +102,7 @@ static void Apply(UITabBarController *tab) {
     });
 }
 
-- (void)setViewControllers:(NSArray *)viewControllers {
+- (void)setViewControllers:(NSArray<__kindof UIViewController *> *)viewControllers {
     %orig;
 
     dispatch_async(dispatch_get_main_queue(), ^{
