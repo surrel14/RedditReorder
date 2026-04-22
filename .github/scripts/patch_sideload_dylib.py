@@ -16,14 +16,19 @@ for dylib_path in dylibs:
     if binary is None:
         raise RuntimeError(f"Failed to parse {dylib_path}")
 
-    libs = list(binary.libraries)
     changed = False
 
-    for lib in libs:
-        if lib == old_path:
+    for lib in list(binary.libraries):
+        lib_name = lib.name
+        if lib_name == old_path:
             print(f"  Replacing dependency: {old_path} -> {new_path}")
-            binary.remove(lief.MachO.LoadCommand.TYPE.LOAD_DYLIB, old_path)
+
+            # rimuove il vecchio load command
+            binary.remove(lib)
+
+            # aggiunge il nuovo
             binary.add_library(new_path)
+
             changed = True
             break
 
