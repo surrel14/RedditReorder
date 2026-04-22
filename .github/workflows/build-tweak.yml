@@ -1,1 +1,19 @@
+name: Build Tweak
 
+on:
+  push:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Setup Theos
+        uses: level3tjg/theos-action@main
+
+      - name: Build tweak
+        run: make clean package FINALPACKAGE=1
